@@ -154,7 +154,9 @@ static int ds1803_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	data = iio_priv(indio_dev);
 	data->client = client;
-	data->cfg = &ds1803_cfg[id->driver_data];
+	data->cfg = device_get_match_data(dev);
+	if (!data->cfg)
+		data->cfg = &ds1803_cfg[id->driver_data];
 
 	indio_dev->info = &ds1803_info;
 	indio_dev->channels = data->cfg->channels;
