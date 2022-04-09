@@ -1032,6 +1032,19 @@ static int bma400_write_event_config(struct iio_dev *indio_dev,
 	}
 }
 
+static int bma400_debugfs_reg_access(struct iio_dev *indio_dev,
+				     unsigned int reg,
+				     unsigned int writeval,
+				     unsigned int *readval)
+{
+	struct bma400_data *data = iio_priv(indio_dev);
+
+	if (readval)
+		return regmap_read(data->regmap, reg, readval);
+	else
+		return regmap_write(data->regmap, reg, writeval);
+}
+
 static int bma400_data_rdy_trigger_set_state(struct iio_trigger *trig,
 					     bool state)
 {
@@ -1062,6 +1075,7 @@ static const struct iio_info bma400_info = {
 	.write_raw_get_fmt = bma400_write_raw_get_fmt,
 	.read_event_config = bma400_read_event_config,
 	.write_event_config = bma400_write_event_config,
+	.debugfs_reg_access = bma400_debugfs_reg_access,
 };
 
 static const struct iio_trigger_ops bma400_trigger_ops = {
