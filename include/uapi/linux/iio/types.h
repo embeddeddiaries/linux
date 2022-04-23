@@ -47,6 +47,7 @@ enum iio_chan_type {
 	IIO_POSITIONRELATIVE,
 	IIO_PHASE,
 	IIO_MASSCONCENTRATION,
+	IIO_TAP,
 };
 
 enum iio_modifier {
@@ -95,6 +96,8 @@ enum iio_modifier {
 	IIO_MOD_ETHANOL,
 	IIO_MOD_H2,
 	IIO_MOD_O2,
+	IIO_MOD_TAP_SINGLE,
+	IIO_MOD_TAP_DOUBLE,
 };
 
 enum iio_event_type {

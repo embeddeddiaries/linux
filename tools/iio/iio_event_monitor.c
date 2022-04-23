@@ -59,6 +59,7 @@ static const char * const iio_chan_type_name_spec[] = {
 	[IIO_POSITIONRELATIVE] = "positionrelative",
 	[IIO_PHASE] = "phase",
 	[IIO_MASSCONCENTRATION] = "massconcentration",
+	[IIO_TAP] = "tap",
 };
 
 static const char * const iio_ev_type_text[] = {
@@ -122,6 +123,8 @@ static const char * const iio_modifier_names[] = {
 	[IIO_MOD_PM4] = "pm4",
 	[IIO_MOD_PM10] = "pm10",
 	[IIO_MOD_O2] = "o2",
+	[IIO_MOD_TAP_SINGLE] = "single",
+	[IIO_MOD_TAP_DOUBLE] = "double",
 };
 
 static bool event_is_known(struct iio_event_data *event)
@@ -164,6 +167,7 @@ static bool event_is_known(struct iio_event_data *event)
 	case IIO_POSITIONRELATIVE:
 	case IIO_PHASE:
 	case IIO_MASSCONCENTRATION:
+	case IIO_TAP:
 		break;
 	default:
 		return false;
@@ -215,6 +219,8 @@ static bool event_is_known(struct iio_event_data *event)
 	case IIO_MOD_PM4:
 	case IIO_MOD_PM10:
 	case IIO_MOD_O2:
+	case IIO_MOD_TAP_SINGLE:
+	case IIO_MOD_TAP_DOUBLE:
 		break;
 	default:
 		return false;

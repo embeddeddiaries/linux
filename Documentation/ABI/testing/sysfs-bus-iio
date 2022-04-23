@@ -2030,3 +2030,14 @@ Description:
 		Available range for the forced calibration value, expressed as:
 
 		- a range specified as "[min step max]"
+
+What:		/sys/.../events/in_tap_single_change_en
+What:		/sys/.../events/in_tap_double_change_en
+KernelVersion:	5.19
+Contact:	linux-iio@vger.kernel.org
+Description:
+		Accelerometer device detects single or double taps and generate
+		events when threshold for minimum tap amplitide passes.
+		E.g. a single tap event is generated when acceleration value
+		crosses the minimum tap amplitude value set. Where tap threshold
+		value is set by using in_tap_change_value.

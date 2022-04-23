@@ -87,6 +87,7 @@ static const char * const iio_chan_type_name_spec[] = {
 	[IIO_POSITIONRELATIVE]  = "positionrelative",
 	[IIO_PHASE] = "phase",
 	[IIO_MASSCONCENTRATION] = "massconcentration",
+	[IIO_TAP] = "tap"
 };
 
 static const char * const iio_modifier_names[] = {
@@ -134,6 +135,8 @@ static const char * const iio_modifier_names[] = {
 	[IIO_MOD_ETHANOL] = "ethanol",
 	[IIO_MOD_H2] = "h2",
 	[IIO_MOD_O2] = "o2",
+	[IIO_MOD_TAP_SINGLE] = "single",
+	[IIO_MOD_TAP_DOUBLE] = "double",
 };
 
 /* relies on pairs of these shared then separate */
