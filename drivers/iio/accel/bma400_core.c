@@ -81,6 +81,7 @@ struct bma400_data {
 	bool step_event_en;
 	bool activity_event_en;
 	unsigned int generic_event_en;
+	unsigned int tap_event_en;
 	/* Correct time stamp alignment */
 	struct {
 		__le16 buff[3];
@@ -180,6 +181,14 @@ static const struct iio_chan_spec_ext_info bma400_ext_info[] = {
 	{ }
 };
 
+static const struct iio_event_spec bma400_tap_event = {
+	.type = IIO_EV_TYPE_CHANGE,
+	.dir = IIO_EV_DIR_NONE,
+	.mask_separate = BIT(IIO_EV_INFO_ENABLE),
+	.mask_shared_by_type = BIT(IIO_EV_INFO_VALUE) |
+			       BIT(IIO_EV_INFO_PERIOD),
+};
+
 static const struct iio_event_spec bma400_step_detect_event = {
 	.type = IIO_EV_TYPE_CHANGE,
 	.dir = IIO_EV_DIR_NONE,
@@ -244,6 +253,19 @@ static const struct iio_event_spec bma400_accel_event[] = {
 	.num_event_specs = 1,					\
 }
 
+/*
+ * Single Tap and Double Tap events needs to be captured instantly, so only
+ * events are being configured.
+ */
+#define BMA400_TAP_CHANNEL(_chan2) {		\
+	.type = IIO_TAP,			\
+	.modified = 1,				\
+	.channel2 = _chan2,			\
+	.scan_index = -1, /* No buffer support */		\
+	.event_spec = &bma400_tap_event,			\
+	.num_event_specs = 1,					\
+}
+
 static const struct iio_chan_spec bma400_channels[] = {
 	BMA400_ACC_CHANNEL(0, X),
 	BMA400_ACC_CHANNEL(1, Y),
@@ -271,6 +293,8 @@ static const struct iio_chan_spec bma400_channels[] = {
 	BMA400_ACTIVITY_CHANNEL(IIO_MOD_STILL),
 	BMA400_ACTIVITY_CHANNEL(IIO_MOD_WALKING),
 	BMA400_ACTIVITY_CHANNEL(IIO_MOD_RUNNING),
+	BMA400_TAP_CHANNEL(IIO_MOD_TAP_SINGLE),
+	BMA400_TAP_CHANNEL(IIO_MOD_TAP_DOUBLE),
 	IIO_CHAN_SOFT_TIMESTAMP(4),
 };
 
@@ -1012,6 +1036,15 @@ static int bma400_read_event_config(struct iio_dev *indio_dev,
 		return data->step_event_en;
 	case IIO_ACTIVITY:
 		return data->activity_event_en;
+	case IIO_TAP:
+		switch (chan->channel2) {
+		case IIO_MOD_TAP_SINGLE:
+			return FIELD_GET(BMA400_S_TAP_MSK, data->tap_event_en);
+		case IIO_MOD_TAP_DOUBLE:
+			return FIELD_GET(BMA400_D_TAP_MSK, data->tap_event_en);
+		default:
+			return -EINVAL;
+		}
 	default:
 		return -EINVAL;
 	}
@@ -1094,6 +1127,72 @@ static int bma400_activity_event_en(struct bma400_data *data,
 	return 0;
 }
 
+static int bma400_tap_event_enable(struct bma400_data *data,
+				   enum iio_modifier mod, int state)
+{
+	int ret;
+	unsigned int mask, field_value;
+
+	if (data->power_mode == POWER_MODE_SLEEP)
+		return -EBUSY;
+
+	/*
+	 * acc_filt1 is the data source for the tap interrupt and it is
+	 * operating on an input data rate of 200Hz.
+	 */
+	ret = bma400_set_accel_output_data_rate(data, 200, 0);
+	if (ret)
+		return ret;
+
+	ret = regmap_update_bits(data->regmap, BMA400_INT12_MAP_REG,
+				 BMA400_S_TAP_MSK,
+				 FIELD_PREP(BMA400_S_TAP_MSK, state));
+	if (ret)
+		return ret;
+
+	switch (mod) {
+	case IIO_MOD_TAP_SINGLE:
+		mask = BMA400_S_TAP_MSK;
+		set_mask_bits(&field_value, BMA400_S_TAP_MSK,
+			      FIELD_PREP(BMA400_S_TAP_MSK, state));
+		break;
+	case IIO_MOD_TAP_DOUBLE:
+		mask = BMA400_D_TAP_MSK;
+		set_mask_bits(&field_value, BMA400_D_TAP_MSK,
+			      FIELD_PREP(BMA400_D_TAP_MSK, state));
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = regmap_update_bits(data->regmap, BMA400_INT_CONFIG1_REG, mask,
+				 field_value);
+	if (ret)
+		return ret;
+
+	set_mask_bits(&data->tap_event_en, mask, field_value);
+	return 0;
+}
+
+static int bma400_disable_adv_interrupt(struct bma400_data *data)
+{
+	int ret;
+
+	ret = regmap_write(data->regmap, BMA400_INT_CONFIG0_REG, 0);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(data->regmap, BMA400_INT_CONFIG1_REG, 0);
+	if (ret)
+		return ret;
+
+	data->tap_event_en = 0;
+	data->generic_event_en = 0;
+	data->step_event_en = 0;
+	data->activity_event_en = 0;
+	return 0;
+}
+
 static int bma400_write_event_config(struct iio_dev *indio_dev,
 				     const struct iio_chan_spec *chan,
 				     enum iio_event_type type,
@@ -1125,6 +1224,11 @@ static int bma400_write_event_config(struct iio_dev *indio_dev,
 		data->activity_event_en = state;
 		mutex_unlock(&data->mutex);
 		return 0;
+	case IIO_TAP:
+		mutex_lock(&data->mutex);
+		ret = bma400_tap_event_enable(data, chan->channel2, state);
+		mutex_unlock(&data->mutex);
+		return ret;
 	default:
 		return -EINVAL;
 	}
@@ -1189,6 +1293,23 @@ static int bma400_read_event_value(struct iio_dev *indio_dev,
 		default:
 			return -EINVAL;
 		}
+	case IIO_TAP:
+		switch (info) {
+		case IIO_EV_INFO_VALUE:
+			ret = regmap_read(data->regmap, BMA400_TAP_CONFIG, val);
+			if (ret)
+				return ret;
+			*val = FIELD_GET(BMA400_TAP_SEN_MSK, *val);
+			return IIO_VAL_INT;
+		case IIO_EV_INFO_PERIOD:
+			ret = regmap_read(data->regmap, BMA400_TAP_CONFIG1, val);
+			if (ret)
+				return ret;
+			*val = FIELD_GET(BMA400_TAP_QUITE_MSK, *val);
+			return IIO_VAL_INT;
+		default:
+			return -EINVAL;
+		}
 	default:
 		return -EINVAL;
 	}
@@ -1237,6 +1358,29 @@ static int bma400_write_event_value(struct iio_dev *indio_dev,
 			return regmap_update_bits(data->regmap, reg,
 						  BMA400_GEN_HYST_MSK,
 						  FIELD_PREP(BMA400_GEN_HYST_MSK,
+							     val));
+		default:
+			return -EINVAL;
+		}
+	case IIO_TAP:
+		switch (info) {
+		case IIO_EV_INFO_VALUE:
+			if (val < 0 || val > 7)
+				return -EINVAL;
+
+			return regmap_update_bits(data->regmap,
+						  BMA400_TAP_CONFIG,
+						  BMA400_TAP_SEN_MSK,
+						  FIELD_PREP(BMA400_TAP_SEN_MSK,
+							     val));
+		case IIO_EV_INFO_PERIOD:
+			if (val < 0 || val > 3)
+				return -EINVAL;
+
+			return regmap_update_bits(data->regmap,
+						  BMA400_TAP_CONFIG1,
+						  BMA400_TAP_QUITE_MSK,
+						  FIELD_PREP(BMA400_TAP_QUITE_MSK,
 							     val));
 		default:
 			return -EINVAL;
@@ -1339,6 +1483,7 @@ static irqreturn_t bma400_interrupt(int irq, void *private)
 	struct bma400_data *data = iio_priv(indio_dev);
 	s64 timestamp = iio_get_time_ns(indio_dev);
 	unsigned int act, ev_dir = IIO_EV_DIR_NONE;
+	unsigned int ev_mod = IIO_NO_MOD;
 	int ret;
 
 	/* Lock to protect the data->status */
@@ -1348,6 +1493,29 @@ static irqreturn_t bma400_interrupt(int irq, void *private)
 			       sizeof(data->status));
 	if (ret)
 		goto unlock_err;
+
+	/* Disable all advance interrupts if interrupt engine overrun occurs */
+	if (FIELD_GET(BMA400_INT_ENG_OVRUN_MSK, le16_to_cpu(data->status))) {
+		bma400_disable_adv_interrupt(data);
+		dev_err(data->dev, "Interrupt engine overrun\n");
+		goto unlock_err;
+	}
+
+	if (FIELD_GET(BMA400_INT_S_TAP_MSK, le16_to_cpu(data->status)))
+		ev_mod = IIO_MOD_TAP_SINGLE;
+
+	if (FIELD_GET(BMA400_INT_D_TAP_MSK, le16_to_cpu(data->status)))
+		ev_mod = IIO_MOD_TAP_DOUBLE;
+
+	if (ev_mod != IIO_NO_MOD) {
+		iio_push_event(indio_dev,
+			       IIO_MOD_EVENT_CODE(IIO_TAP, 0,
+						  ev_mod, IIO_EV_TYPE_CHANGE,
+						  IIO_EV_DIR_NONE),
+			       timestamp);
+		mutex_unlock(&data->mutex);
+		return IRQ_HANDLED;
+	}
 
 	if (FIELD_GET(BMA400_INT_GEN1_MSK, le16_to_cpu(data->status)))
 		ev_dir = IIO_EV_DIR_RISING;
